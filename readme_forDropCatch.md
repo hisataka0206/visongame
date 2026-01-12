@@ -71,3 +71,51 @@ PCの内蔵カメラで人間の骨格を認識し、画面上から落ちてく
 - モードをさらに追加し、ストーリーモードとフリーモードと分けます。従来のゲームをフリーモードとします。
 - ストーリーモードは全部で５つのフリーモードを組み合わせたものとなっており、１つのゲームをクリアするたびに難しくなります。クリアしたかどうかの判断基準はそのゲームの中で理論上獲得できる最高得点の60％以上の得点をゲット出来たこと、とします。
 - ストーリーモードを自作できるように難易度調整を別途ユーザーが決められるような仕組みを作りたいです。
+
+# Add Another Requirements for another device
+- また、別のパソコンでプレイするためには、パソコンのカメラを用いてプレイするようにしたいです。こちらをウェブブラウザ上で実現できるようにしたいです。
+- 上記を実現するにあたって、一定のフォルダを作成し、そちらのフォルダ毎別のPCに移して、そこにあるhtmlファイルを叩くことで実現できるようにしたいです。
+
+---
+
+# How to Play (Usage Instructions)
+
+## 1. Python Native Version
+推奨環境: Python 3.8+, Webカメラ
+
+### Install Dependencies
+```bash
+pip install opencv-python mediapipe numpy pygame
+```
+
+### Run Game
+```bash
+python3 body_catch_game.py
+```
+
+### Controls
+- **S**: Start Game
+- **M**: Toggle Mode (Free / Story)
+- **P**: Settings (Free Mode) / Level Editor (Story Mode)
+- **Q / ESC**: Quit
+- **R**: Restart (during Game Over)
+
+## 2. Web Port Version
+フォルダ: `web_dist/`
+
+### 実行方法 (Local)
+`web_dist` フォルダに移動し、ローカルサーバーを起動してください。
+```bash
+cd web_dist
+python3 run_local.py
+```
+ブラウザが開き、ゲームがプレイできます。
+
+### 別のPCでのプレイ
+1. `web_dist` フォルダ全体を別のPCにコピーしてください。
+2. 以下のいずれかのファイルをダブルクリック（または実行）して起動してください：
+   - **Windows**: `start_game.bat`
+   - **Linux/Mac**: `start_game.sh`（初回は実行権限が必要な場合があります）
+3. ブラウザが自動的に開き、ゲームが開始されます。
+   - ※Webカメラへのアクセス許可を求められた場合は「許可」を選択してください。
+   - ※Pythonがインストールされていない場合は、ローカルサーバーが起動しません。その場合は `index.html` を直接開いて試すこともできますが、ブラウザのセキュリティ制限によりカメラが動作しない可能性があります。推奨はPython環境での実行です。
