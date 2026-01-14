@@ -129,6 +129,7 @@ class Game {
         this.fruits = [];
         this.effects = [];
         this.lastSpawnTime = 0;
+        this.retryCount = 0;
 
         this.inputHandling();
         this.updateUI();
@@ -137,6 +138,69 @@ class Game {
     inputHandling() {
         window.addEventListener('keydown', (e) => {
             const key = e.key.toLowerCase();
+            let valid = false;
+            let expected = [];
+
+            // Global Keys
+            if (['q', 'escape'].includes(key)) valid = true;
+
+            // State-specific validation
+            if (this.state === 'START') {
+                expected = ['s', 'p', 'm', 'q', 'escape'];
+                if (expected.includes(key)) valid = true;
+            } else if (this.state === 'SETTINGS') {
+                expected = ['1', '2', '3', '4', 'b', 'p', 'q', 'escape'];
+                if (expected.includes(key)) valid = true;
+            } else if (this.state === 'STORY_CONFIG') {
+                expected = ['1', '2', '3', '4', 'b', 'p', ',', '.', '<', '>', 'q', 'escape'];
+                if (expected.includes(key)) valid = true;
+            } else if (this.state === 'GAMEOVER') {
+                expected = ['r', 'p', 'q', 'escape'];
+                if (expected.includes(key)) valid = true;
+            } else if (this.state === 'PLAYING') {
+                // In playing, most keys are ignored or valid?
+                // If we want to detect "pressing S during playing" -> erroneous.
+                // Let's say only global keys are valid UI inputs.
+                expected = ['q', 'escape'];
+                if (expected.includes(key)) valid = true;
+            } else {
+                // Other states (STAGE_CLEAR etc) -> maybe ignore or block
+                valid = false;
+            }
+
+            if (!valid && this.state !== 'PLAYING') {
+                // Log Erroneous (Skip playing because they might be mash/motion noise, unless strictly undesired)
+                // User requirement: "misoperation... different from instructions".
+                // In playing, there are no instructions to press keys (except Q).
+                // So hitting 'S' is definitely erroneous.
+                if (window.sendLog) window.sendLog({
+                    type: 'erroneous_input',
+                    key: key,
+                    state: this.state,
+                    expected: expected,
+                    description: "User pressed unexpected key."
+                });
+                return;
+            }
+
+            // If we are playing and key is invalid, we might still want to log it?
+            // "misoperation". Hitting spacebar during game = misoperation?
+            // Let's log it for PLAYING too if distinct enough. 
+            // The check `!valid && this.state !== 'PLAYING'` skipped it.
+            // Let's remove that exclusion to catch all.
+            if (!valid) {
+                if (window.sendLog) window.sendLog({
+                    type: 'erroneous_input',
+                    key: key,
+                    state: this.state,
+                    expected: expected,
+                    description: "User pressed unexpected key."
+                });
+                return;
+            }
+
+            // Normal Logic
+            if (window.sendKeyLog) window.sendKeyLog(key); // Standard tracking for valid keys
 
             if (key === 'q' || key === 'escape') {
                 if (this.state === 'PLAYING') {
@@ -202,7 +266,13 @@ class Game {
             // Let's assume 'S' from START resets to Stage 1. 
             // We need a way to know if we are restarting a stage or starting fresh.
             // The method argument handles it.
-            if (this.state === 'START') this.currentStage = 0;
+            if (this.state === 'START') {
+                this.currentStage = 0;
+                this.retryCount = 0;
+            }
+        } else {
+            // Free Mode: reset retry on start
+            if (this.state === 'START') this.retryCount = 0;
         }
 
         // Apply Settings
@@ -236,6 +306,9 @@ class Game {
         // But user said "R restarts".
         if (this.mode === MODES.STORY && this.score >= this.targetScore && this.currentStage === 4) {
             this.currentStage = 0;
+            this.retryCount = 0; // Reset if restarting whole story
+        } else {
+            this.retryCount++;
         }
         this.startGame(true);
     }
@@ -424,9 +497,35 @@ class Game {
         if (this.mode === MODES.FREE) {
             this.state = 'GAMEOVER';
             this.updateUI();
+
+            // Log Game Over (Free)
+            if (window.sendLog) window.sendLog({
+                type: 'game_over',
+                mode: 'FREE',
+                score: this.score,
+                duration: this.gameDuration,
+                retryCount: this.retryCount
+            });
+
         } else {
             if (this.score >= this.targetScore) {
                 if (this.currentStage < 4) {
+
+                    // Log Stage Clear
+                    if (window.sendLog) window.sendLog({
+                        type: 'stage_clear',
+                        mode: 'STORY',
+                        stage: this.currentStage + 1,
+                        score: this.score,
+                        target: this.targetScore,
+                        retryCount: this.retryCount
+                    });
+                    // Reset retry count for next stage? User request: "where stage repeated". So cumulative or per stage?
+                    // Usually retry count is interesting per stage. Let's keep it cumulative for the session or reset?
+                    // Let's NOT reset here to track total retries, OR reset to track per-stage difficulty.
+                    // User said "how many times repeated *where*". Implies per stage tracking.
+                    this.retryCount = 0;
+
                     this.currentStage++;
                     this.state = 'STAGE_CLEAR';
                     this.updateUI();
@@ -436,10 +535,31 @@ class Game {
                 } else {
                     this.state = 'GAMEOVER';
                     this.updateUI();
+
+                    // Log All Cleared
+                    if (window.sendLog) window.sendLog({
+                        type: 'game_over',
+                        mode: 'STORY',
+                        result: 'ALL_CLEARED',
+                        score: this.score,
+                        finalStage: this.currentStage + 1,
+                        retryCount: this.retryCount
+                    });
                 }
             } else {
                 this.state = 'GAMEOVER';
                 this.updateUI();
+
+                // Log Fail
+                if (window.sendLog) window.sendLog({
+                    type: 'game_over',
+                    mode: 'STORY',
+                    result: 'FAILED',
+                    stage: this.currentStage + 1,
+                    score: this.score,
+                    target: this.targetScore,
+                    retryCount: this.retryCount
+                });
             }
         }
     }

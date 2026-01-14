@@ -76,22 +76,52 @@
         // --- PoC Logging (Web Port) ---
         const GAS_URL = "https://script.google.com/macros/s/AKfycbxeJqv6X1k6V3o9HkMGSe7I-Td0F0ry8MgN3_NtLkEn1aYfapXYND5nUYl8PCamvu8ANA/exec";
         const GAME_NAME = "BodyCatch_Web_v1";
-        const SESSION_ID = "sess_" + Math.random().toString(36).substr(2, 9);
+        const SESSION_ID = "sesscatch_" + Math.random().toString(36).substr(2, 9);
 
-        function sendKeyLog(keyName, note = "") {
-            console.log(`[PoC Log] Key: ${keyName}, Note: ${note}`);
+        // Send Log (Generic)
+        window.sendLog = function (data) {
+            console.log(`[PoC Log]`, data);
+
+            // Mapper
+            let logKey = "";
+            let logNote = "";
+
+            if (data.type === 'key') {
+                logKey = data.key;
+                logNote = data.note || "";
+            } else if (data.type === 'erroneous_input') {
+                logKey = data.key;
+                logNote = `ERRONEOUS (Exp: ${data.expected ? data.expected.join(',') : '?'})`;
+            } else if (data.type === 'game_over') {
+                logKey = "GAME_OVER";
+                logNote = `Stage: ${data.stage || '-'}, Score: ${data.score}, Retry: ${data.retryCount}, Mode: ${data.mode}`;
+            } else if (data.type === 'stage_clear') {
+                logKey = "STAGE_CLEAR";
+                logNote = `Stage: ${data.stage}, Score: ${data.score}, Retry: ${data.retryCount}`;
+            } else {
+                logKey = data.type || "UNKNOWN";
+                logNote = JSON.stringify(data);
+            }
+
+            const payload = {
+                gameName: GAME_NAME,
+                session: SESSION_ID,
+                timestamp: new Date().toISOString(),
+                key: logKey,
+                note: logNote
+            };
+
             fetch(GAS_URL, {
                 method: 'POST',
                 mode: 'no-cors',
                 headers: { 'Content-Type': 'text/plain' },
-                body: JSON.stringify({
-                    gameName: GAME_NAME,
-                    key: keyName,
-                    note: note,
-                    session: SESSION_ID,
-                    timestamp: new Date().toISOString()
-                })
+                body: JSON.stringify(payload)
             }).catch(e => console.error("Log Error:", e));
+        }
+
+        // Backward compatibility
+        function sendKeyLog(keyName, note = "") {
+            window.sendLog({ type: 'key', key: keyName, note: note });
         }
 
         // Global Key Listener for Logging

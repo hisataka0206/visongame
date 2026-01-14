@@ -109,19 +109,44 @@ class BodyCatchGame:
         self.GAME_NAME = "BodyCatch_v1"
         self.SESSION_ID = f"sess_{str(uuid.uuid4())[:8]}"
 
-    def send_key_log(self, key_name, note=""):
+    def send_log(self, data):
         def _send():
             try:
-                data = {
+                # Mapper
+                log_key = ""
+                log_note = ""
+                
+                msg_type = data.get("type", "UNKNOWN")
+                
+                if msg_type == "key":
+                    log_key = data.get("key", "")
+                    log_note = data.get("note", "")
+                elif msg_type == "erroneous_input":
+                    log_key = data.get("key", "")
+                    exp = data.get("expected", [])
+                    exp_str = ",".join(exp) if isinstance(exp, list) else str(exp)
+                    log_note = f"ERRONEOUS (Exp: {exp_str})"
+                elif msg_type == "game_over":
+                    log_key = "GAME_OVER"
+                    log_note = f"Score: {data.get('score', 0)}, Stage: {data.get('stage', '-')}, Retry: {data.get('retryCount', 0)}, Mode: {data.get('mode', '-')}"
+                elif msg_type == "stage_clear":
+                    log_key = "STAGE_CLEAR"
+                    log_note = f"Stage: {data.get('stage', '-')}, Score: {data.get('score', 0)}, Retry: {data.get('retryCount', 0)}"
+                else:
+                    log_key = str(msg_type)
+                    log_note = str(data)
+
+                payload = {
                     "gameName": self.GAME_NAME,
-                    "key": key_name,
-                    "note": note,
                     "session": self.SESSION_ID,
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
+                    "key": log_key,
+                    "note": log_note
                 }
+                
                 # GAS exec endpoint expects POST. Standard fetch sends JSON string in body.
                 # Python urllib needs bytes.
-                json_data = json.dumps(data).encode('utf-8')
+                json_data = json.dumps(payload).encode('utf-8')
                 req = urllib.request.Request(self.GAS_URL, data=json_data, method='POST')
                 req.add_header('Content-Type', 'text/plain') # Same as JS to avoid CORS/Issues on GAS side if handled similarly
                 
@@ -132,6 +157,9 @@ class BodyCatchGame:
 
         # Run in thread to not block game loop
         threading.Thread(target=_send, daemon=True).start()
+
+    def send_key_log(self, key_name, note=""):
+        self.send_log({"type": "key", "key": key_name, "note": note})
 
         # Game Modes
         self.MODE_FREE = 'FREE'
@@ -174,6 +202,7 @@ class BodyCatchGame:
         self.state = 'START'
         self.stage_cleared_msg_timer = 0
         self.clear_timer_start = 0
+        self.retry_count = 0
 
         # Load Assets
         self.images = {}
@@ -227,9 +256,11 @@ class BodyCatchGame:
             dir_val = self.free_settings['direction']['options'][self.free_settings['direction']['idx']]
         else: # STORY
             if not restart_stage:
-                # current_stage should be managed by the clear logic, 
-                # but if we are just starting (from START screen), it should be 0.
-                # If we are restarting a stage, current_stage is already set.
+                # START screen -> New Game
+                self.current_stage = 0
+                self.retry_count = 0
+            else:
+                self.retry_count += 1
                 pass
                 
             cfg = self.story_config[self.current_stage]
@@ -409,6 +440,14 @@ class BodyCatchGame:
             self.state = 'GAMEOVER'
             if not self.score_saved:
                 self.save_high_score()
+                
+                self.send_log({
+                    "type": "game_over",
+                    "mode": "FREE",
+                    "score": self.score,
+                    "duration": self.game_duration,
+                    "retryCount": self.retry_count
+                })
         else: # STORY
             if self.score >= self.target_score:
                 # CLEAR
@@ -416,13 +455,43 @@ class BodyCatchGame:
                     self.current_stage += 1
                     self.state = 'STAGE_CLEAR'
                     self.clear_timer_start = time.time()
+                    
+                    self.send_log({
+                        "type": "stage_clear",
+                        "mode": "STORY",
+                        "stage": self.current_stage, # already incremented, so this is current cleared stage idx + 1? No, ++ preceeds.
+                        # Wait, logic: self.current_stage += 1. So now it is Next Stage index.
+                        # Cleared stage was current_stage - 1.
+                        "stage_cleared": self.current_stage, 
+                        "score": self.score,
+                        "retryCount": self.retry_count
+                    })
+                    self.retry_count = 0 # Reset for next stage? Or keep cumulative? Matching Web: Reset.
                 else:
                     # All Stages Cleared
                     self.state = 'GAMEOVER'
                     self.save_high_score()
+                    
+                    self.send_log({
+                        "type": "game_over",
+                        "mode": "STORY",
+                        "result": "ALL_CLEARED",
+                        "score": self.score,
+                        "retryCount": self.retry_count
+                    })
             else:
                 # FAILED
+                # FAILED
                 self.state = 'GAMEOVER'
+                self.send_log({
+                    "type": "game_over",
+                    "mode": "STORY",
+                    "result": "FAILED",
+                    "stage": self.current_stage + 1,
+                    "score": self.score,
+                    "target": self.target_score,
+                    "retryCount": self.retry_count
+                })
 
     def draw_game_over(self, image):
         overlay = image.copy()
@@ -491,8 +560,41 @@ class BodyCatchGame:
             key = cv2.waitKey(5) & 0xFF
             
             if key != 255: # If any key pressed
+                # Erroneous Logic
                 key_char = chr(key) if key < 128 else f"Code_{key}"
-                self.send_key_log(str(key_char))
+                valid = False
+                expected = []
+                
+                # Global
+                if key == 27 or key == ord('q'): valid = True
+                
+                if self.state == 'START':
+                    expected = ['s', 'p', 'm']
+                    if key in [ord('s'), ord('p'), ord('m'), 27, ord('q')]: valid = True
+                elif self.state == 'SETTINGS':
+                    expected = ['1', '2', '3', '4', 'b', 'p']
+                    if key in [ord('1'), ord('2'), ord('3'), ord('4'), ord('b'), ord('p'), 27, ord('q')]: valid = True
+                elif self.state == 'STORY_CONFIG':
+                    expected = ['1', '2', '3', '4', 'b', 'p', ',', '.', '<', '>']
+                    if key in [ord('1'), ord('2'), ord('3'), ord('4'), ord('b'), ord('p'), ord(','), ord('.'), ord('<'), ord('>'), 27, ord('q')]: valid = True
+                elif self.state == 'GAMEOVER':
+                    expected = ['r', 'p']
+                    if key in [ord('r'), ord('p'), 27, ord('q')]: valid = True
+                elif self.state == 'PLAYING':
+                    # Only Q/ESC valid
+                    expected = ['q', 'ESC']
+                    if key in [27, ord('q')]: valid = True
+
+                if not valid:
+                    self.send_log({
+                        "type": "erroneous_input",
+                        "key": key_char,
+                        "state": self.state,
+                        "expected": expected,
+                        "description": "User pressed unexpected key."
+                    })
+                else:
+                     self.send_key_log(str(key_char)) # Log valid keys as usual
             
             if key == 27 or key == ord('q'): # ESC or q
                 break
