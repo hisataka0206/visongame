@@ -119,3 +119,28 @@ python3 run_local.py
 3. ブラウザが自動的に開き、ゲームが開始されます。
    - ※Webカメラへのアクセス許可を求められた場合は「許可」を選択してください。
    - ※Pythonがインストールされていない場合は、ローカルサーバーが起動しません。その場合は `index.html` を直接開いて試すこともできますが、ブラウザのセキュリティ制限によりカメラが動作しない可能性があります。推奨はPython環境での実行です。
+
+
+### PoC調査
+
+* PoCの調査を行うためにユーザーのログをGAS上に記載するようにしたい。
+GASのアドレスはこちら。
+https://script.google.com/macros/s/AKfycbxeJqv6X1k6V3o9HkMGSe7I-Td0F0ry8MgN3_NtLkEn1aYfapXYND5nUYl8PCamvu8ANA/exec
+
+* GASにどのキーを打ったのかを記載されるように以下のコードを参考にindex.htmlを修正してください。
+// ▼ ゲームごとにここを変える
+const GAME_NAME = "AvoidWall_v1"; 
+
+// ... (SESSION_IDなどはそのまま) ...
+
+function sendKeyLog(keyName, note = "") {
+    fetch(GAS_URL, {
+        // ... (省略) ...
+        body: JSON.stringify({
+            gameName: GAME_NAME, // ▼ ここでゲーム名を送信！
+            key: keyName,
+            note: note,
+            session: SESSION_ID 
+        })
+    });
+}

@@ -7,7 +7,10 @@ import math
 import pygame
 import os
 import json
+import urllib.request
+import threading
 from datetime import datetime
+import uuid
 
 # pip install opencv-python mediapipe numpy pygame
 
@@ -100,6 +103,35 @@ class BodyCatchGame:
             min_tracking_confidence=0.5
         )
         self.mp_drawing = mp.solutions.drawing_utils
+
+        # --- PoC Logging Setup ---
+        self.GAS_URL = "https://script.google.com/macros/s/AKfycbxeJqv6X1k6V3o9HkMGSe7I-Td0F0ry8MgN3_NtLkEn1aYfapXYND5nUYl8PCamvu8ANA/exec"
+        self.GAME_NAME = "BodyCatch_v1"
+        self.SESSION_ID = f"sess_{str(uuid.uuid4())[:8]}"
+
+    def send_key_log(self, key_name, note=""):
+        def _send():
+            try:
+                data = {
+                    "gameName": self.GAME_NAME,
+                    "key": key_name,
+                    "note": note,
+                    "session": self.SESSION_ID,
+                    "timestamp": datetime.now().isoformat()
+                }
+                # GAS exec endpoint expects POST. Standard fetch sends JSON string in body.
+                # Python urllib needs bytes.
+                json_data = json.dumps(data).encode('utf-8')
+                req = urllib.request.Request(self.GAS_URL, data=json_data, method='POST')
+                req.add_header('Content-Type', 'text/plain') # Same as JS to avoid CORS/Issues on GAS side if handled similarly
+                
+                with urllib.request.urlopen(req) as response:
+                    pass # Fire and forget
+            except Exception as e:
+                print(f"[Log Error] {e}")
+
+        # Run in thread to not block game loop
+        threading.Thread(target=_send, daemon=True).start()
 
         # Game Modes
         self.MODE_FREE = 'FREE'
@@ -455,7 +487,13 @@ class BodyCatchGame:
             image = cv2.flip(image, 1) # Mirror view
             
             # --- Input Handling ---
+            # --- Input Handling ---
             key = cv2.waitKey(5) & 0xFF
+            
+            if key != 255: # If any key pressed
+                key_char = chr(key) if key < 128 else f"Code_{key}"
+                self.send_key_log(str(key_char))
+            
             if key == 27 or key == ord('q'): # ESC or q
                 break
 

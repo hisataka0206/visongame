@@ -1,21 +1,23 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Body Catch Game - Web Port</title>
     <link rel="stylesheet" href="style.css">
-    
+
     <!-- MediaPipe Dependencies -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 </head>
+
 <body>
     <div id="game-container">
         <video id="input-video" playsinline style="display: none;"></video>
         <canvas id="output-canvas"></canvas>
-        
+
         <!-- UI Overlay -->
         <div id="ui-layer">
             <div id="start-screen" class="screen">
@@ -57,6 +59,10 @@
                 <!-- High scores not persisted in this simple web version local storage could be used -->
                 <p>Press 'R' to Restart</p>
                 <p>Press 'P' for Settings</p>
+                <div
+                    style="margin-top:20px; font-size:0.8rem; color:#aaa; border-top:1px solid #555; padding-top:10px;">
+                    <p>ℹ️ 品質改善: プレイ中のキー操作ログ等を匿名で収集しています。</p>
+                </div>
             </div>
 
             <div id="stage-clear-screen" class="screen hidden">
@@ -65,7 +71,35 @@
             </div>
         </div>
     </div>
-    
+
+    <script>
+        // --- PoC Logging (Web Port) ---
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbxeJqv6X1k6V3o9HkMGSe7I-Td0F0ry8MgN3_NtLkEn1aYfapXYND5nUYl8PCamvu8ANA/exec";
+        const GAME_NAME = "BodyCatch_Web_v1";
+        const SESSION_ID = "sess_" + Math.random().toString(36).substr(2, 9);
+
+        function sendKeyLog(keyName, note = "") {
+            console.log(`[PoC Log] Key: ${keyName}, Note: ${note}`);
+            fetch(GAS_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify({
+                    gameName: GAME_NAME,
+                    key: keyName,
+                    note: note,
+                    session: SESSION_ID,
+                    timestamp: new Date().toISOString()
+                })
+            }).catch(e => console.error("Log Error:", e));
+        }
+
+        // Global Key Listener for Logging
+        window.addEventListener('keydown', (e) => {
+            sendKeyLog(e.key);
+        });
+    </script>
     <script src="game.js"></script>
 </body>
+
 </html>
