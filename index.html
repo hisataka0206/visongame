@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Body Catch Game - Web Port</title>
+    <link rel="stylesheet" href="style.css">
+    
+    <!-- MediaPipe Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+</head>
+<body>
+    <div id="game-container">
+        <video id="input-video" playsinline style="display: none;"></video>
+        <canvas id="output-canvas"></canvas>
+        
+        <!-- UI Overlay -->
+        <div id="ui-layer">
+            <div id="start-screen" class="screen">
+                <h1>BODY CATCH GAME</h1>
+                <h2 id="mode-display">MODE: FREE</h2>
+                <p>Press 'M' to Toggle Mode</p>
+                <p>Press 'S' to START</p>
+                <p id="settings-hint">Press 'P' for SETTINGS</p>
+            </div>
+
+            <div id="settings-screen" class="screen hidden">
+                <h2>FREE MODE SETTINGS</h2>
+                <div id="settings-list"></div>
+                <p>Press 1-4 to Change | 'B' Back</p>
+            </div>
+
+            <div id="story-config-screen" class="screen hidden">
+                <h2>STORY LEVEL EDITOR</h2>
+                <div id="stage-selector">
+                    <span id="stage-display">&lt; Stage 1 &gt;</span>
+                </div>
+                <p class="hint">(Use ',' and '.' to Change Stage)</p>
+                <div id="story-settings-list"></div>
+                <p>Press 1-4 to Cycle Options</p>
+                <p>Press 'B' to Back</p>
+            </div>
+
+            <div id="hud" class="hidden">
+                <div id="score">Score: 0</div>
+                <div id="time">Time: 60</div>
+                <div id="stage-info" class="hidden">Stage: 1/5</div>
+                <div id="target-info" class="hidden">Target: 0</div>
+            </div>
+
+            <div id="game-over-screen" class="screen hidden">
+                <h1 id="go-title">GAME OVER</h1>
+                <h2 id="final-score">Final Score: 0</h2>
+                <div id="go-story-info" class="hidden"></div>
+                <!-- High scores not persisted in this simple web version local storage could be used -->
+                <p>Press 'R' to Restart</p>
+                <p>Press 'P' for Settings</p>
+            </div>
+
+            <div id="stage-clear-screen" class="screen hidden">
+                <h1 id="sc-title">STAGE CLEARED!</h1>
+                <p>Get Ready for Next Stage...</p>
+            </div>
+        </div>
+    </div>
+    
+    <script src="game.js"></script>
+</body>
+</html>
