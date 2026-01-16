@@ -7,10 +7,13 @@
     <title>トルポ -ToRuPose-</title>
     <link rel="stylesheet" href="style.css">
 
-    <!-- MediaPipe Dependencies -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <!-- MediaPipe Tasks Vision (Loaded dynamically) -->
+    <style>
+        /* Hide video element since we draw to canvas */
+        #input-video {
+            display: none;
+        }
+    </style>
 </head>
 
 <body>
@@ -25,6 +28,7 @@
                 <h2 id="mode-display">MODE: FREE</h2>
                 <p>Press 'M' to Toggle Mode</p>
                 <p>Press 'S' to START</p>
+                <p>Press 'T' for TEST MODE</p>
                 <p id="settings-hint">Press 'P' for SETTINGS</p>
             </div>
 
@@ -56,7 +60,6 @@
                 <h1 id="go-title">GAME OVER</h1>
                 <h2 id="final-score">Final Score: 0</h2>
                 <div id="go-story-info" class="hidden"></div>
-                <!-- High scores not persisted in this simple web version local storage could be used -->
                 <p>Press 'R' to Restart</p>
                 <p>Press 'P' for Settings</p>
                 <div
@@ -129,7 +132,791 @@
             sendKeyLog(e.key);
         });
     </script>
-    <script src="game.js"></script>
+    <script type="module">
+
+        const canvas = document.getElementById('output-canvas');
+        const ctx = canvas.getContext('2d');
+        const video = document.getElementById('input-video');
+
+        // Screens
+        const screens = {
+            start: document.getElementById('start-screen'),
+            settings: document.getElementById('settings-screen'),
+            storyConfig: document.getElementById('story-config-screen'),
+            hud: document.getElementById('hud'),
+            gameOver: document.getElementById('game-over-screen'),
+            stageClear: document.getElementById('stage-clear-screen')
+        };
+
+        // UI Elements
+        const els = {
+            score: document.getElementById('score'),
+            time: document.getElementById('time'),
+            modeDisplay: document.getElementById('mode-display'),
+            settingsList: document.getElementById('settings-list'),
+            storySettingsList: document.getElementById('story-settings-list'),
+            stageSelector: document.getElementById('stage-display'),
+            stageInfo: document.getElementById('stage-info'),
+            targetInfo: document.getElementById('target-info'),
+            finalScore: document.getElementById('final-score'),
+            goStoryInfo: document.getElementById('go-story-info')
+        };
+
+        // Assets
+        const assets = {
+            banana: new Image(),
+            orange: new Image(),
+            music: new Audio('assets/techno.mp3')
+        };
+        assets.banana.src = 'assets/icon/banana.png';
+        assets.orange.src = 'assets/icon/orange.png';
+        assets.music.loop = true;
+
+        // Game Constants
+        const MODES = { FREE: 'FREE', STORY: 'STORY', TEST: 'TEST' };
+
+        // Helpers
+        function randRange(min, max) { return Math.random() * (max - min) + min; }
+        function randInt(min, max) { return Math.floor(randRange(min, max)); }
+
+        class Fruit {
+            constructor(w, h, speedMult, direction, isStatic = false, staticX = 0, staticY = 0) {
+                this.type = Math.random() < 0.5 ? 'banana' : 'orange';
+                this.radius = 30;
+                this.w = w;
+                this.h = h;
+                this.direction = direction;
+                this.isStatic = isStatic;
+
+                if (this.isStatic) {
+                    this.x = staticX;
+                    this.y = staticY;
+                    this.speed = 0;
+                    this.dx = 0;
+                } else {
+                    const baseSpeed = randRange(5, 10);
+                    this.speed = baseSpeed * speedMult;
+
+                    if (direction === 'Up') {
+                        this.x = randInt(50, w - 50);
+                        this.y = h + 50;
+                    } else if (direction === 'Diagonal') {
+                        this.x = randInt(50, w - 50);
+                        this.y = -50;
+                        this.dx = (Math.random() < 0.5 ? -1 : 1) * (this.speed * 0.5);
+                    } else { // Down
+                        this.x = randInt(50, w - 50);
+                        this.y = -50;
+                    }
+                }
+            }
+
+            update() {
+                if (this.isStatic) return;
+
+                if (this.direction === 'Up') {
+                    this.y -= this.speed;
+                } else if (this.direction === 'Diagonal') {
+                    this.y += this.speed;
+                    this.x += this.dx;
+                    if (this.x < 0 || this.x > this.w) this.dx *= -1;
+                } else {
+                    this.y += this.speed;
+                }
+            }
+
+            draw(ctx) {
+                const img = this.type === 'banana' ? assets.banana : assets.orange;
+                if (img.complete && img.naturalHeight !== 0) {
+                    const size = 60;
+                    ctx.drawImage(img, this.x - size / 2, this.y - size / 2, size, size);
+                } else {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = this.type === 'banana' ? 'yellow' : 'orange';
+                    ctx.fill();
+                    ctx.strokeStyle = 'white';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+            }
+        }
+
+        class Game {
+            constructor() {
+                this.state = 'START';
+                this.mode = MODES.FREE;
+                this.frameCount = 0; // For Heartbeat
+
+                this.freeSettings = {
+                    duration: { options: [30, 60, 90, 120], idx: 1, label: 'Game Duration (s)' },
+                    spawn_rate: { options: [1.5, 1.0, 0.5, 0.3], idx: 1, label: 'Spawn Rate (s)' },
+                    speed_mult: { options: [0.5, 1.0, 1.5, 2.0], idx: 1, label: 'Fall Speed' },
+                    direction: { options: ['Down', 'Diagonal', 'Up'], idx: 0, label: 'Direction' }
+                };
+
+                this.storyConfig = [
+                    { duration: 30, spawn_rate: 1.5, speed_mult: 0.5, direction: 'Down' },
+                    { duration: 45, spawn_rate: 1.0, speed_mult: 1.0, direction: 'Down' },
+                    { duration: 60, spawn_rate: 1.0, speed_mult: 1.5, direction: 'Diagonal' },
+                    { duration: 60, spawn_rate: 0.5, speed_mult: 1.5, direction: 'Diagonal' },
+                    { duration: 90, spawn_rate: 0.3, speed_mult: 2.0, direction: 'Up' }
+                ];
+                this.storyOptions = {
+                    duration: [30, 45, 60, 90, 120],
+                    spawn_rate: [2.0, 1.5, 1.0, 0.5, 0.3],
+                    speed_mult: [0.5, 1.0, 1.5, 2.0, 3.0],
+                    direction: ['Down', 'Diagonal', 'Up']
+                };
+
+                this.currentStage = 0;
+                this.score = 0;
+                this.startTime = 0;
+                this.fruits = [];
+                this.effects = [];
+                this.lastSpawnTime = 0;
+                this.retryCount = 0;
+
+                this.inputHandling();
+                this.updateUI();
+            }
+
+            inputHandling() {
+                window.addEventListener('keydown', (e) => {
+                    const key = e.key.toLowerCase();
+                    let valid = false;
+                    let expected = [];
+
+                    // Global Keys
+                    if (['q', 'escape'].includes(key)) valid = true;
+
+                    // State-specific validation
+                    if (this.state === 'START') {
+                        expected = ['s', 'p', 'm', 't', 'q', 'escape'];
+                        if (expected.includes(key)) valid = true;
+                    } else if (this.state === 'SETTINGS') {
+                        expected = ['1', '2', '3', '4', 'b', 'p', 'q', 'escape'];
+                        if (expected.includes(key)) valid = true;
+                    } else if (this.state === 'STORY_CONFIG') {
+                        expected = ['1', '2', '3', '4', 'b', 'p', ',', '.', '<', '>', 'q', 'escape'];
+                        if (expected.includes(key)) valid = true;
+                    } else if (this.state === 'GAMEOVER') {
+                        expected = ['r', 'p', 'q', 'escape'];
+                        if (expected.includes(key)) valid = true;
+                    } else if (this.state === 'PLAYING') {
+                        expected = ['q', 'escape', 'd'];
+                        if (expected.includes(key)) valid = true;
+                    } else {
+                        valid = false;
+                    }
+
+                    if (!valid) {
+                        if (window.sendLog) window.sendLog({
+                            type: 'erroneous_input',
+                            key: key,
+                            state: this.state,
+                            expected: expected,
+                            description: "User pressed unexpected key."
+                        });
+                        return;
+                    }
+
+                    // Normal Logic
+                    if (window.sendKeyLog) window.sendKeyLog(key);
+
+                    if (key === 'q' || key === 'escape') {
+                        if (this.state === 'PLAYING') {
+                            this.state = 'START';
+                            this.stopMusic();
+                        }
+                    }
+
+                    if (this.state === 'START') {
+                        if (key === 's') this.startGame();
+                        if (key === 'p') this.state = this.mode === MODES.FREE ? 'SETTINGS' : 'STORY_CONFIG';
+                        if (key === 'm') {
+                            this.mode = this.mode === MODES.FREE ? MODES.STORY : MODES.FREE;
+                            document.body.className = this.mode === MODES.STORY ? 'mode-story' : '';
+                        }
+                        // TEST MODE TOGGLE
+                        if (key === 't') {
+                            this.mode = MODES.TEST;
+                            this.startGame();
+                        }
+                    } else if (this.state === 'SETTINGS') {
+                        if (key === 'b' || key === 'p') this.state = 'START';
+                        if (['1', '2', '3', '4'].includes(key)) {
+                            const keys = Object.keys(this.freeSettings);
+                            const idx = parseInt(key) - 1;
+                            if (idx < keys.length) {
+                                const k = keys[idx];
+                                const s = this.freeSettings[k];
+                                s.idx = (s.idx + 1) % s.options.length;
+                            }
+                        }
+                    } else if (this.state === 'STORY_CONFIG') {
+                        if (key === 'b' || key === 'p') this.state = 'START';
+                        if (key === ',' || key === '<') this.currentStage = Math.max(0, this.currentStage - 1);
+                        if (key === '.' || key === '>') this.currentStage = Math.min(4, this.currentStage + 1);
+
+                        const cfg = this.storyConfig[this.currentStage];
+                        const opt = this.storyOptions;
+                        if (key === '1') cfg.duration = this.nextOpt(opt.duration, cfg.duration);
+                        if (key === '2') cfg.spawn_rate = this.nextOpt(opt.spawn_rate, cfg.spawn_rate);
+                        if (key === '3') cfg.speed_mult = this.nextOpt(opt.speed_mult, cfg.speed_mult);
+                        if (key === '4') cfg.direction = this.nextOpt(opt.direction, cfg.direction);
+
+                    } else if (this.state === 'GAMEOVER') {
+                        if (key === 'r') this.state === 'GAMEOVER' && this.restartGame();
+                        if (key === 'p') this.state = this.mode === MODES.FREE ? 'SETTINGS' : 'STORY_CONFIG';
+                    }
+
+                    this.updateUI();
+                });
+            }
+
+            nextOpt(arr, current) {
+                const i = arr.indexOf(current);
+                return arr[(i + 1) % arr.length];
+            }
+
+            startGame(restartStage = false) {
+                this.score = 0;
+                this.startTime = Date.now();
+                this.fruits = [];
+                this.effects = [];
+                this.lastSpawnTime = 0;
+
+                if (this.mode === MODES.STORY && !restartStage) {
+                    if (this.state === 'START') {
+                        this.currentStage = 0;
+                        this.retryCount = 0;
+                    }
+                } else if (this.mode === MODES.TEST) {
+                    // TEST MODE SETUP
+                    this.gameDuration = 9999;
+                    this.spawnRate = 9999;
+                    this.speedMult = 0;
+                    this.direction = 'Down';
+                    this.targetScore = 1000;
+                    this.retryCount = 0;
+
+                    for (let i = 0; i < 10; i++) {
+                        const x = (canvas.width / 11) * (i + 1);
+                        const y = (i % 2 === 0) ? canvas.height * 0.3 : canvas.height * 0.5;
+                        this.fruits.push(new Fruit(canvas.width, canvas.height, 0, 'Down', true, x, y));
+                    }
+                } else {
+                    if (this.state === 'START') this.retryCount = 0;
+                }
+
+                // Apply Settings
+                if (this.mode === MODES.FREE) {
+                    const s = this.freeSettings;
+                    this.gameDuration = s.duration.options[s.duration.idx];
+                    this.spawnRate = s.spawn_rate.options[s.spawn_rate.idx];
+                    this.speedMult = s.speed_mult.options[s.speed_mult.idx];
+                    this.direction = s.direction.options[s.direction.idx];
+                    this.targetScore = 0;
+                } else if (this.mode === MODES.STORY) {
+                    const cfg = this.storyConfig[this.currentStage];
+                    this.gameDuration = cfg.duration;
+                    this.spawnRate = cfg.spawn_rate;
+                    this.speedMult = cfg.speed_mult;
+                    this.direction = cfg.direction;
+
+                    const totalDrops = this.gameDuration / this.spawnRate;
+                    this.targetScore = Math.floor(totalDrops * 3 * 0.60);
+                }
+
+                this.state = 'PLAYING';
+                this.playMusic();
+                this.updateUI();
+            }
+
+            restartGame() {
+                if (this.mode === MODES.STORY && this.score >= this.targetScore && this.currentStage === 4) {
+                    this.currentStage = 0;
+                    this.retryCount = 0;
+                } else {
+                    this.retryCount++;
+                }
+                this.startGame(true);
+            }
+
+            playMusic() {
+                assets.music.currentTime = 0;
+                assets.music.play().catch(e => console.log("Audio play failed (maybe need interaction):", e));
+            }
+
+            stopMusic() {
+                assets.music.pause();
+            }
+
+            updateUI() {
+                // Hide all
+                Object.values(screens).forEach(s => s.classList.add('hidden'));
+
+                if (this.state === 'START') {
+                    screens.start.classList.remove('hidden');
+                    els.modeDisplay.textContent = `MODE: ${this.mode}`;
+                } else if (this.state === 'SETTINGS') {
+                    screens.settings.classList.remove('hidden');
+                    // Render list
+                    let html = '';
+                    Object.keys(this.freeSettings).forEach((k, i) => {
+                        const item = this.freeSettings[k];
+                        html += `<div class="setting-item">${i + 1}. ${item.label}: ${item.options[item.idx]}</div>`;
+                    });
+                    els.settingsList.innerHTML = html;
+                } else if (this.state === 'STORY_CONFIG') {
+                    screens.storyConfig.classList.remove('hidden');
+                    els.stageSelector.textContent = `< Stage ${this.currentStage + 1} >`;
+                    const cfg = this.storyConfig[this.currentStage];
+                    let html = `
+                <div class="setting-item">1. Duration: ${cfg.duration}s</div>
+                <div class="setting-item">2. Spawn Rate: ${cfg.spawn_rate}s</div>
+                <div class="setting-item">3. Speed Mult: ${cfg.speed_mult}x</div>
+                <div class="setting-item">4. Direction: ${cfg.direction}</div>
+            `;
+                    els.storySettingsList.innerHTML = html;
+                } else if (this.state === 'PLAYING') {
+                    screens.hud.classList.remove('hidden');
+                    if (this.mode === MODES.STORY) {
+                        els.stageInfo.classList.remove('hidden');
+                        els.stageInfo.textContent = `Stage: ${this.currentStage + 1}/5`;
+                        els.targetInfo.classList.remove('hidden');
+                        els.targetInfo.textContent = `Target: ${this.targetScore}`;
+                    } else if (this.mode === MODES.TEST) {
+                        els.stageInfo.classList.remove('hidden');
+                        els.stageInfo.textContent = "TEST MODE";
+                        els.targetInfo.classList.remove('hidden');
+                        els.targetInfo.textContent = "Catch 10 items";
+                    } else {
+                        els.stageInfo.classList.add('hidden');
+                        els.targetInfo.classList.add('hidden');
+                    }
+                } else if (this.state === 'GAMEOVER') {
+                    screens.gameOver.classList.remove('hidden');
+                    els.finalScore.textContent = `Final Score: ${this.score}`;
+
+                    if (this.mode === MODES.STORY) {
+                        els.goStoryInfo.classList.remove('hidden');
+                        if (this.score >= this.targetScore && this.currentStage === 4) {
+                            screens.gameOver.querySelector('h1').textContent = "ALL STAGES CLEARED!";
+                            screens.gameOver.querySelector('h1').style.color = "#0f0";
+                            els.goStoryInfo.textContent = "";
+                        } else if (this.score < this.targetScore) {
+                            screens.gameOver.querySelector('h1').textContent = "STAGE FAILED...";
+                            screens.gameOver.querySelector('h1').style.color = "#f00";
+                            els.goStoryInfo.textContent = `Target was: ${this.targetScore}`;
+                        }
+                    } else {
+                        screens.gameOver.querySelector('h1').textContent = "GAME OVER";
+                        screens.gameOver.querySelector('h1').style.color = "#f00";
+                        els.goStoryInfo.classList.add('hidden');
+                    }
+                } else if (this.state === 'STAGE_CLEAR') {
+                    screens.stageClear.classList.remove('hidden');
+                    screens.stageClear.querySelector('h1').textContent = `STAGE ${this.currentStage} CLEARED!`;
+                }
+            }
+
+            update(landmarks) {
+                if (this.state !== 'PLAYING') return;
+
+                const now = Date.now();
+                const elapsed = (now - this.startTime) / 1000;
+                const remaining = Math.max(0, this.gameDuration - elapsed);
+
+                els.time.textContent = `Time: ${Math.floor(remaining)}`;
+                els.score.textContent = `Score: ${this.score}`;
+                els.time.classList.toggle('low-time', remaining <= 10);
+
+                if (remaining <= 0) {
+                    this.checkGameOver();
+                    return;
+                }
+
+                if (now - this.lastSpawnTime > this.spawnRate * 1000) {
+                    this.fruits.push(new Fruit(canvas.width, canvas.height, this.speedMult, this.direction));
+                    this.lastSpawnTime = now;
+                }
+
+                // Collision & Logic
+                // Interaction points: Nose(0), Wrists(15,16), Digits(19,20), Foot Indices(31,32)
+                const relevantLandmarks = [
+                    { idx: 0, pts: 3 }, // Head
+                    { idx: 15, pts: 1 }, // L Wrist
+                    { idx: 16, pts: 1 }, // R Wrist
+                    { idx: 19, pts: 1 }, // L Index
+                    { idx: 20, pts: 1 }, // R Index
+                    { idx: 31, pts: 2 }, // L Foot
+                    { idx: 32, pts: 2 }  // R Foot
+                ];
+                this.debugLandmarks = relevantLandmarks;
+
+                for (let i = this.fruits.length - 1; i >= 0; i--) {
+                    let f = this.fruits[i];
+                    f.update();
+
+                    let caught = false;
+                    // Collision detection
+                    if (landmarks) {
+                        for (let lm of relevantLandmarks) {
+                            const p = landmarks[lm.idx];
+                            if (p) {
+                                const px = p.x * canvas.width;
+                                const py = p.y * canvas.height;
+                                const dist = Math.hypot(px - f.x, py - f.y);
+
+                                if (dist < 50 + f.radius) {
+                                    caught = true;
+                                    this.score += lm.pts;
+                                    this.effects.push({ Rx: f.x, Ry: f.y, r: 10 });
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    let remove = caught;
+                    if (!f.isStatic) {
+                        if (f.direction === 'Up' && f.y < -50) remove = true;
+                        if (f.direction !== 'Up' && f.y > canvas.height + 50) remove = true;
+                    }
+
+                    if (remove) {
+                        this.fruits.splice(i, 1);
+                    }
+                }
+            }
+
+            draw(ctx, landmarks) {
+                this.frameCount++;
+
+                // Effects
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 3;
+                for (let i = this.effects.length - 1; i >= 0; i--) {
+                    let e = this.effects[i];
+                    e.r += 5;
+                    ctx.beginPath();
+                    ctx.arc(e.Rx, e.Ry, e.r, 0, Math.PI * 2);
+                    ctx.stroke();
+                    if (e.r > 50) this.effects.splice(i, 1);
+                }
+
+                // Fruits
+                this.fruits.forEach(f => f.draw(ctx));
+
+                // Landmarks Drawing (Visual Validation)
+                if (landmarks && this.state === 'PLAYING') {
+                    const h = canvas.height;
+                    const w = canvas.width;
+
+                    const pts = [
+                        { idx: 0, c: 'blue' },
+                        { idx: 15, c: 'lime' }, { idx: 16, c: 'lime' },
+                        { idx: 19, c: 'cyan' }, { idx: 20, c: 'cyan' },
+                        { idx: 31, c: 'red' }, { idx: 32, c: 'red' }
+                    ];
+
+                    pts.forEach(p => {
+                        const lm = landmarks[p.idx];
+                        if (lm && lm.visibility > 0.1) {
+                            const lx = lm.x * w;
+                            const ly = lm.y * h;
+
+                            // Hitbox
+                            ctx.beginPath();
+                            ctx.strokeStyle = "rgba(255, 255, 0, 0.5)";
+                            ctx.lineWidth = 2;
+                            ctx.arc(lx, ly, 50, 0, Math.PI * 2);
+                            ctx.stroke();
+
+                            // Dot
+                            ctx.beginPath();
+                            ctx.arc(lx, ly, 15, 0, Math.PI * 2);
+                            ctx.fillStyle = p.c;
+                            ctx.fill();
+                        }
+                    });
+                }
+
+                // DEBUG OVERLAY - MOVED OUTSIDE detection check
+                if (this.state === 'PLAYING' && this.mode === MODES.TEST) {
+                    const h = canvas.height;
+                    const w = canvas.width;
+
+                    let debugInfo = { handX: 0, handY: 0, fruitX: 0, fruitY: 0, dist: 9999, vis: 0 };
+                    let activeHand = null;
+
+                    if (landmarks) {
+                        const pts = [
+                            { idx: 0 }, { idx: 15 }, { idx: 16 }, { idx: 19 }, { idx: 20 }, { idx: 31 }, { idx: 32 }
+                        ];
+
+                        pts.forEach(p => {
+                            const lm = landmarks[p.idx];
+                            if (lm) {
+                                const lx = lm.x * w;
+                                const ly = lm.y * h;
+
+                                this.fruits.forEach(f => {
+                                    const d = Math.hypot(lx - f.x, ly - f.y);
+                                    if (d < debugInfo.dist) {
+                                        debugInfo.dist = d;
+                                        debugInfo.handX = lx;
+                                        debugInfo.handY = ly;
+                                        debugInfo.fruitX = f.x;
+                                        debugInfo.fruitY = f.y;
+                                        // SAFELY ACCESS VISIBILITY (default 0)
+                                        debugInfo.vis = (lm.visibility !== undefined) ? lm.visibility : 0;
+                                        activeHand = p.idx;
+                                    }
+                                });
+                            }
+                        });
+                    }
+
+                    // Text Box (Bottom Left)
+                    const boxX = 10;
+                    const boxY = h - 220;
+
+                    ctx.fillStyle = "rgba(0,0,0,0.7)";
+                    ctx.fillRect(boxX, boxY, 320, 180);
+                    ctx.fillStyle = "white";
+                    ctx.font = "16px monospace";
+                    ctx.fillText(`DEBUG MODE (Frame: ${this.frameCount})`, boxX + 10, boxY + 25);
+                    ctx.fillText(`Canvas: ${w}x${h}`, boxX + 10, boxY + 45);
+
+                    if (activeHand !== null) {
+                        const names = { 0: 'Nose', 15: 'L.Wrist', 16: 'R.Wrist', 19: 'L.Index', 20: 'R.Index', 31: 'L.Foot', 32: 'R.Foot' };
+                        const name = names[activeHand] || activeHand;
+
+                        ctx.fillText(`Point:  ${name} (${activeHand})`, boxX + 10, boxY + 65);
+
+                        // CRASH FIX: SAFE CHECK OR DEFAULT FOR TOFIXED
+                        const visVal = (debugInfo.vis !== undefined) ? debugInfo.vis : 0;
+                        ctx.fillText(`Vis:    ${visVal.toFixed(4)}`, boxX + 10, boxY + 85);
+
+                        ctx.fillText(`Coord:  ${Math.floor(debugInfo.handX)}, ${Math.floor(debugInfo.handY)}`, boxX + 10, boxY + 105);
+                        ctx.fillText(`Fruit:  ${Math.floor(debugInfo.fruitX)}, ${Math.floor(debugInfo.fruitY)}`, boxX + 10, boxY + 125);
+                        ctx.fillText(`Dist:   ${Math.floor(debugInfo.dist)} (Req < 80)`, boxX + 10, boxY + 145);
+
+                        ctx.fillStyle = debugInfo.dist < 80 ? "#0f0" : "#f00";
+                        ctx.fillText(`Result: ${debugInfo.dist < 80 ? "HIT" : "MISS"}`, boxX + 10, boxY + 165);
+                    } else {
+                        ctx.fillText(`No active tracking points`, boxX + 10, boxY + 70);
+                        if (!landmarks) {
+                            ctx.fillText(`found. (Detection = NULL)`, boxX + 10, boxY + 90);
+                        } else {
+                            ctx.fillText(`found. (All points filtered?)`, boxX + 10, boxY + 90);
+                        }
+                    }
+                }
+            }
+
+            checkGameOver() {
+                this.stopMusic();
+                if (this.mode === MODES.FREE) {
+                    this.state = 'GAMEOVER';
+                    this.updateUI();
+
+                    if (window.sendLog) window.sendLog({
+                        type: 'game_over',
+                        mode: 'FREE',
+                        score: this.score,
+                        duration: this.gameDuration,
+                        retryCount: this.retryCount
+                    });
+
+                } else if (this.mode === MODES.TEST) {
+                    this.state = 'GAMEOVER';
+                    this.updateUI();
+                } else {
+                    if (this.score >= this.targetScore) {
+                        if (this.currentStage < 4) {
+                            if (window.sendLog) window.sendLog({
+                                type: 'stage_clear',
+                                mode: 'STORY',
+                                stage: this.currentStage + 1,
+                                score: this.score,
+                                target: this.targetScore,
+                                retryCount: this.retryCount
+                            });
+                            this.retryCount = 0;
+
+                            this.currentStage++;
+                            this.state = 'STAGE_CLEAR';
+                            this.updateUI();
+                            setTimeout(() => {
+                                if (this.state === 'STAGE_CLEAR') this.startGame(true);
+                            }, 3000);
+                        } else {
+                            this.state = 'GAMEOVER';
+                            this.updateUI();
+
+                            if (window.sendLog) window.sendLog({
+                                type: 'game_over',
+                                mode: 'STORY',
+                                result: 'ALL_CLEARED',
+                                score: this.score,
+                                finalStage: this.currentStage + 1,
+                                retryCount: this.retryCount
+                            });
+                        }
+                    } else {
+                        this.state = 'GAMEOVER';
+                        this.updateUI();
+
+                        if (window.sendLog) window.sendLog({
+                            type: 'game_over',
+                            mode: 'STORY',
+                            result: 'FAILED',
+                            stage: this.currentStage + 1,
+                            score: this.score,
+                            target: this.targetScore,
+                            retryCount: this.retryCount
+                        });
+                    }
+                }
+            }
+        }
+
+        const game = new Game();
+
+        // --- NEW MEDIA PIPE SETUP (Largest Skeleton Priority) ---
+
+        let poseLandmarker = undefined;
+        let drawingUtils = undefined;
+        let lastVideoTime = -1;
+        let POSE_CONNECTIONS = null;
+        let targetLandmarks = null; // PERSISTENT
+
+        async function setupMediaPipe() {
+            const { PoseLandmarker, FilesetResolver, DrawingUtils } = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/vision_bundle.js");
+
+            const vision = await FilesetResolver.forVisionTasks(
+                "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
+            );
+
+            poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+                baseOptions: {
+                    modelAssetPath: `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task`,
+                    delegate: "GPU"
+                },
+                runningMode: "VIDEO",
+                numPoses: 5, // Enable multi-pose detection
+                minPoseDetectionConfidence: 0.5,
+                minPosePresenceConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            drawingUtils = new DrawingUtils(ctx);
+            POSE_CONNECTIONS = PoseLandmarker.POSE_CONNECTIONS;
+
+            console.log("MediaPipe Pose Landmarker Loaded");
+            enableWebcam();
+        }
+
+        function enableWebcam() {
+            const constraints = { video: { width: 1280, height: 720 } };
+            navigator.mediaDevices.getUserMedia(constraints).then((stream) => {
+                video.srcObject = stream;
+                video.addEventListener("loadeddata", () => {
+                    video.play();
+                    requestAnimationFrame(gameLoop);
+                });
+            }).catch(err => {
+                console.error("Camera access denied or failed:", err);
+                alert("Camera access denied. Please allow camera access to play.");
+            });
+        }
+
+        function gameLoop(timestamp) {
+            try {
+                if (video.videoWidth > 0 && (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight)) {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                }
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // --- 1. Draw Mirrored Video ---
+                ctx.save();
+                ctx.translate(canvas.width, 0);
+                ctx.scale(-1, 1);
+
+                if (video.readyState >= 2) {
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                }
+                ctx.restore();
+
+                // --- 2. Detect Pose ---
+                if (poseLandmarker && video.currentTime !== lastVideoTime && video.videoWidth > 0) {
+                    lastVideoTime = video.currentTime;
+                    const result = poseLandmarker.detectForVideo(video, timestamp);
+
+                    // --- LARGEST SKELETON PRIORITY LOGIC ---
+                    if (result.landmarks && result.landmarks.length > 0) {
+                        let maxArea = -1;
+                        let maxIndex = -1;
+
+                        for (let i = 0; i < result.landmarks.length; i++) {
+                            const lm = result.landmarks[i];
+                            let minX = 1, maxX = 0, minY = 1, maxY = 0;
+
+                            // Calculate Bounding Box
+                            for (let p of lm) {
+                                if (p.x < minX) minX = p.x;
+                                if (p.x > maxX) maxX = p.x;
+                                if (p.y < minY) minY = p.y;
+                                if (p.y > maxY) maxY = p.y;
+                            }
+
+                            const area = (maxX - minX) * (maxY - minY);
+                            if (area > maxArea) {
+                                maxArea = area;
+                                maxIndex = i;
+                            }
+                        }
+
+                        // Priority: Largest formatted skeleton
+                        if (maxIndex !== -1) {
+                            // FLIP X HERE!
+                            const rawLandmarks = result.landmarks[maxIndex];
+                            targetLandmarks = rawLandmarks.map(p => ({
+                                ...p,
+                                x: 1.0 - p.x,
+                                visibility: p.visibility // Ensure visibility is copied
+                            }));
+                        }
+                    } else {
+                        targetLandmarks = null;
+                    }
+                }
+
+                // --- 3. Draw Skeleton and Game (Normal Context) ---
+                if (targetLandmarks && drawingUtils && POSE_CONNECTIONS) {
+                    drawingUtils.drawConnectors(targetLandmarks, POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 4 });
+                    drawingUtils.drawLandmarks(targetLandmarks, { color: '#FF0000', lineWidth: 2, radius: 3 });
+                }
+
+                game.draw(ctx, targetLandmarks);
+
+                game.update(targetLandmarks);
+
+                requestAnimationFrame(gameLoop);
+            } catch (err) {
+                console.error("Game Loop Crash:", err);
+                // Attempt restart loop? No, might infinite loop error.
+            }
+        }
+
+        setupMediaPipe();
+    </script>
 </body>
 
 </html>
