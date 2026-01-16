@@ -1,2 +1,9 @@
 /old
 develop/old/
+
+# Ignore all user-added icons
+assets/icon/*.png
+
+# Allow default assets (Whitelisting)
+!assets/icon/orange.png
+!assets/icon/banana.png

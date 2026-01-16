@@ -168,14 +168,26 @@
         };
         assets.music.loop = true;
 
-        // Config: Add new filenames here if you add files to assets/icon/
-        const AVAILABLE_IMAGES = [
-            'banana.png',
-            'orange.png'
-            // 'apple.png', 'grape.png', ... 
-        ];
+        // Config: Dynamically loaded from server
+        let AVAILABLE_IMAGES = [];
 
-        function initFruitImages() {
+        async function initFruitImages() {
+            try {
+                // Fetch list from server
+                const response = await fetch('/api/icons');
+                if (response.ok) {
+                    const files = await response.json();
+                    AVAILABLE_IMAGES = files;
+                    console.log("Loaded images from server:", files);
+                } else {
+                    console.warn("Failed to load image list from server, using defaults.");
+                    AVAILABLE_IMAGES = ['banana.png', 'orange.png'];
+                }
+            } catch (e) {
+                console.error("Error fetching icons:", e);
+                AVAILABLE_IMAGES = ['banana.png', 'orange.png'];
+            }
+
             // Shuffle and pick max 5
             const shuffled = [...AVAILABLE_IMAGES].sort(() => 0.5 - Math.random());
             const selected = shuffled.slice(0, 5); // Pick up to 5
@@ -187,6 +199,7 @@
             });
             console.log(`Selected ${assets.fruitImages.length} fruit images:`, selected);
         }
+        // Call immediately
         initFruitImages();
 
         // Game Constants
