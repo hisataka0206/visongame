@@ -164,13 +164,31 @@
 
         // Assets
         const assets = {
-            banana: new Image(),
-            orange: new Image(),
-            music: new Audio('assets/techno.mp3')
+            music: new Audio('assets/techno.mp3'),
+            fruitImages: [] // Will be populated dynamically
         };
-        assets.banana.src = 'assets/icon/banana.png';
-        assets.orange.src = 'assets/icon/orange.png';
         assets.music.loop = true;
+
+        // Config: Add new filenames here if you add files to assets/icon/
+        const AVAILABLE_IMAGES = [
+            'banana.png',
+            'orange.png'
+            // 'apple.png', 'grape.png', ... 
+        ];
+
+        function initFruitImages() {
+            // Shuffle and pick max 5
+            const shuffled = [...AVAILABLE_IMAGES].sort(() => 0.5 - Math.random());
+            const selected = shuffled.slice(0, 5); // Pick up to 5
+
+            assets.fruitImages = selected.map(filename => {
+                const img = new Image();
+                img.src = `assets/icon/${filename}`;
+                return img;
+            });
+            console.log(`Selected ${assets.fruitImages.length} fruit images:`, selected);
+        }
+        initFruitImages();
 
         // Game Constants
         const MODES = { FREE: 'FREE', STORY: 'STORY', TEST: 'TEST' };
@@ -181,7 +199,13 @@
 
         class Fruit {
             constructor(w, h, speedMult, direction, isStatic = false, staticX = 0, staticY = 0) {
-                this.type = Math.random() < 0.5 ? 'banana' : 'orange';
+                // Select random image from the active pool
+                if (assets.fruitImages.length > 0) {
+                    this.img = assets.fruitImages[randInt(0, assets.fruitImages.length)];
+                } else {
+                    this.img = null; // Fallback
+                }
+
                 this.radius = 30;
                 this.w = w;
                 this.h = h;
@@ -226,14 +250,13 @@
             }
 
             draw(ctx) {
-                const img = this.type === 'banana' ? assets.banana : assets.orange;
-                if (img.complete && img.naturalHeight !== 0) {
-                    const size = 60;
-                    ctx.drawImage(img, this.x - size / 2, this.y - size / 2, size, size);
+                if (this.img && this.img.complete && this.img.naturalHeight !== 0) {
+                    const size = 120;
+                    ctx.drawImage(this.img, this.x - size / 2, this.y - size / 2, size, size);
                 } else {
                     ctx.beginPath();
                     ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-                    ctx.fillStyle = this.type === 'banana' ? 'yellow' : 'orange';
+                    ctx.fillStyle = 'orange'; // Generic Fallback
                     ctx.fill();
                     ctx.strokeStyle = 'white';
                     ctx.lineWidth = 2;
