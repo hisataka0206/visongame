@@ -1,149 +1,116 @@
-# Role
-あなたはPythonとComputer Visionの専門家です。
-「MediaPipe」と「OpenCV」を使用して、Webカメラを使った体感型ARゲームを作成してください。
+# Torupose (Drop Catch Game) 仕様書
 
-# Product Goal
-PCの内蔵カメラで人間の骨格を認識し、画面上から落ちてくる「バナナ」や「オレンジ」を手や体でキャッチするゲーム `body_catch_game.py` を実装してください。
+## 1. 概要 (Overview)
+Webカメラを使用して、画面上から出現するフルーツ（バナナ、オレンジ）を体の動きでキャッチする体感型ARゲームです。
+「MediaPipe Pose」を用いてブラウザ上で動作し、骨格検知を利用したインタラクションを行います。
 
-# Libraries
-- opencv-python
-- mediapipe
-- numpy
-- random
-- time
+## 2. システム構成 (Architecture)
+- **プラットフォーム:** Webブラウザ (Chrome推奨)
+- **技術スタック:**
+  - **Core:** HTML5, CSS3, Vanilla JavaScript
+  - **Vision:** MediaPipe Pose (CDN経由)
+  - **Logging:** Google Apps Script (GAS) 連携によるPoCデータ収集
 
-# Requirements
-## 1. Camera & Display
-- Webカメラ(index 0)を使用する。
-- ユーザーが鏡のように感じるよう、映像を左右反転（ミラーリング）して表示する。
-- 画面解像度は 1280x720 とする。
-
-## 2. Skeleton Detection (VisionPose alternative)
-- `mediapipe.solutions.pose` を使用して全身の骨格を検出する。
-- 検出された骨格（ランドマーク）を画面上に描画する。
-- 特に「右手首(Right Wrist)」と「左手首(Left Wrist)」の座標を、当たり判定に使用する。
-
-## 3. Game Objects (Fruits)
-- バナナ（黄色）とオレンジ（オレンジ色）のオブジェクトをクラスとして定義する。
-- 形状は `cv2.circle` で描画する単純な円で良い（色は区別する）。
-- **Spawn:** 画面上端（Y=0）のランダムなX座標から定期的に生成する。
-- **Gravity:** 時間経過とともにY座標が増加し、落下する。
-- 画面下端を超えたらオブジェクトを削除する。
-
-## 4. Interaction (Catch)
-- 「手首の座標」と「フルーツの座標」のユークリッド距離を計算する。
-- 距離が一定以下（例: 50px）になったら「キャッチ」とみなし、以下を行う。
-  - スコアを +1 加算する。
-  - そのフルーツを画面から消去する。
-  - キャッチした場所に短い視覚エフェクト（円が広がるなど）を表示する。
-
-## 5. Game Loop & UI
-- **Time Limit:** 制限時間は60秒（1分）。
-- 画面左上に「Score」と「Time」を大きく見やすく表示する。
-- 制限時間が0になったらゲームループを止め、画面中央に大きく「GAME OVER」「Final Score: X」を表示する。
-- 'q'キーまたはESCキーでゲームを終了できるようにする。
-
-## 6. Game Assets
-- バナナとオレンジの画像を用意する。
-- iconフォルダにあるbanana.pngとorange.pngを用いてください。
-- banana.pngとorange.pngの中心座標に表示する。
-- それぞれの画像をキャッチしたときに、その場所に短い視覚エフェクト（円が広がるなど）を表示する。
-- ただし、iconフォルダ内に該当のファイルがない場合には、デフォルトとしてそれぞれ黄色とオレンジ色の円を表示する。
-
-# Implementation Details
-- コードは1つのPythonファイル（`body_catch_game.py`）にまとめてください。
-- エラーハンドリング（カメラが見つからない場合など）を含めてください。
-- 実行時に必要な `pip install` コマンドをコメントまたは説明に含めてください。
-- 変数名やコメントは分かりやすく記述してください。
-
-# Add Another Requirements
-- 現在、両手があたり判定となっています。しかし、足先があたった場合には得点が２。頭があたった場合には得点が３になるようにしたいです
-- バックミュージックとして、テクノ系の音楽が流れるようにしたいです
-- 履歴機能を用意して、過去の得点をトップ10を記録するようにします。何月何日何時何分に取得出来たかを、最後のゲーム完了時に表示します
-- また、qを押下すると終了しますが、rを押下するとゲームを再開できるようにします。
-- ゲームの難易度を変更できるようにします。具体的には、UIを用意して以下を変更できるようにします。
-  - 1. ゲームのプレイ時間
-  - 2. 落ち物の数
-  - 3. 落ち物の落下速度
-  - 4. 落ち物の落下する方向（下方向、斜め方向、上方向）
-- この要求を満たすために、スタート画面を用意し、ゲームスタート時はS、難易度設定はPを押下します。
-- Game Over時のリスタート画面でも、再スタートはR、難易度設定はPとします。
-- モードをさらに追加し、ストーリーモードとフリーモードと分けます。従来のゲームをフリーモードとします。
-- ストーリーモードは全部で５つのフリーモードを組み合わせたものとなっており、１つのゲームをクリアするたびに難しくなります。クリアしたかどうかの判断基準はそのゲームの中で理論上獲得できる最高得点の60％以上の得点をゲット出来たこと、とします。
-- ストーリーモードを自作できるように難易度調整を別途ユーザーが決められるような仕組みを作りたいです。
-
-# Add Another Requirements for another device
-- また、別のパソコンでプレイするためには、パソコンのカメラを用いてプレイするようにしたいです。こちらをウェブブラウザ上で実現できるようにしたいです。
-- 上記を実現するにあたって、一定のフォルダを作成し、そちらのフォルダ毎別のPCに移して、そこにあるhtmlファイルを叩くことで実現できるようにしたいです。
+### ディレクトリ構造
+- `base/` (ルート): Web版（本番/最新）
+  - `index.html`: エントリーポイント
+  - `game.js`: ゲームロジック
+  - `style.css`: UIスタイル
+  - `assets/`: 画像・音声リソース
+  - `run_local.py`: ローカル実行用簡易サーバー
+- `base/develop/`: Python Native版（プロトタイプ/旧版）
 
 ---
 
-# How to Play (Usage Instructions)
+## 3. Web版 ゲーム仕様 (Game Specifications)
 
-## 1. Python Native Version
-推奨環境: Python 3.8+, Webカメラ
+### 3.1 ゲームルール
+- **目的:** 制限時間内に、出現するフルーツを体で触れてスコアを稼ぐ。
+- **オブジェクト:**
+  - **バナナ / オレンジ:** ランダムに出現。落下、または浮上（設定による）。
+  - **更新方法:**
+    - 特定のディレクトリに特定の名前で保存することでゲーム内のオブジェクトが更新される
+- **スコア計算 (Body Parts Scoring):**
+  部位によって獲得スコアが異なります。
+  - **頭 (Head):** +3点
+  - **足 (Feet):** +2点
+  - **手 (Wrists):** +1点
+- **演出:** キャッチ時にエフェクト（円）を表示し、フルーツは消滅する。
 
-### Install Dependencies
+### 3.2 ゲームモード (Modes)
+**Mキー** でモードを切り替えます。
+
+#### 1. FREE MODE (フリーモード)
+- 自由に設定（時間、速度、頻度、方向）を変更してプレイするモード。
+- 初期設定は設定画面で変更可能。
+
+#### 2. STORY MODE (ストーリーモード)
+- 全5ステージを順にクリアしていくモード。
+- **クリア条件:** そのステージで理論上獲得可能な最大スコアの **60%** 以上を獲得すること。
+- **ステージ構成:**
+  - Stage 1: ゆっくり落下
+  - Stage 2: 標準速度
+  - Stage 3: 斜め移動
+  - Stage 4: 高速・斜め
+  - Stage 5: "UP" (下から上へ浮上)
+- **レベルエディタ:** Story Modeの設定画面で、各ステージの構成をカスタマイズ可能。
+
+### 3.3操作方法 (Controls)
+
+| 画面 | キー | 動作 |
+| :--- | :--- | :--- |
+| **共通** | `Q` / `Esc` | ゲーム終了 / タイトルへ戻る |
+| **タイトル** | `S` | ゲームスタート |
+| | `M` | モード切替 (Free ⇔ Story) |
+| | `P` | 設定画面へ (Settings / Level Editor) |
+| **設定画面** | `1` - `4` | 各項目の設定値を変更 |
+| | `B` / `P` | タイトルへ戻る |
+| | `,` / `.` | (Storyのみ) ステージ選択 (Prev/Next) |
+| **プレイ中** | (なし) | 体で操作。キー入力は誤操作としてログ記録 |
+| **GAME OVER** | `R` | リトライ (Story時は同じステージから、全クリア時は最初から) |
+| | `P` | 設定画面へ |
+
+### 3.4 設定項目 (Configuration)
+設定画面 (`P`) で以下のパラメータを調整可能です。
+
+1. **Game Duration:** ゲーム時間 (30s, 60s, 90s, 120s)
+2. **Spawn Rate:** 出現頻度 (間隔: 0.3s ~ 1.5s)
+3. **Speed Mult:** 落下速度倍率 (0.5x ~ 3.0x)
+4. **Direction:** 移動方向
+   - `Down`: 上から下へ落下
+   - `Diagonal`: 斜めに落下・反射
+   - `Up`: 下から上へ浮上
+
+### 3.5 ログ収集機能 (PoC Logging)
+Google Apps Script (GAS) へ以下の行動ログを送信します。
+- **Key Press:** 押下されたキー
+- **Erroneous Input:** 想定外のキー操作（プレイ中のキー操作など）
+- **Game Events:** Game Over, Stage Clear (スコア、リトライ回数、到達ステージ)
+
+---
+
+## 4. 実行方法 (How to Run)
+
+Webカメラを使用するため、ローカルサーバー経由での実行が必要です。
+
+### 手順
+1. `base/` ディレクトリに移動。
+2. 以下のコマンドでサーバーを起動（Python環境がある場合）。
+   ```bash
+   python3 run_local.py
+   ```
+3. ブラウザで `http://localhost:8000` (または表示されるポート) にアクセス。
+
+---
+
+## 5. Python Native版 (Legacy)
+`base/develop/body_catch_game.py` に配置されています。
+OpenCV + MediaPipe (Python) で動作するデスクトップアプリ版です。
+基本的なルールは同様ですが、Web版のようなストーリーモードや詳細な設定UIは実装が異なる場合があります。
+
+### 実行方法
 ```bash
-pip install opencv-python mediapipe numpy pygame
-```
-
-### Run Game
-```bash
+cd base/develop
+pip install opencv-python mediapipe numpy
 python3 body_catch_game.py
 ```
-
-### Controls
-- **S**: Start Game
-- **M**: Toggle Mode (Free / Story)
-- **P**: Settings (Free Mode) / Level Editor (Story Mode)
-- **Q / ESC**: Quit
-- **R**: Restart (during Game Over)
-
-## 2. Web Port Version
-フォルダ: `web_dist/`
-
-### 実行方法 (Local)
-`web_dist` フォルダに移動し、ローカルサーバーを起動してください。
-```bash
-cd web_dist
-python3 run_local.py
-```
-ブラウザが開き、ゲームがプレイできます。
-
-### 別のPCでのプレイ
-1. `web_dist` フォルダ全体を別のPCにコピーしてください。
-2. 以下のいずれかのファイルをダブルクリック（または実行）して起動してください：
-   - **Windows**: `start_game.bat`
-   - **Linux/Mac**: `start_game.sh`（初回は実行権限が必要な場合があります）
-3. ブラウザが自動的に開き、ゲームが開始されます。
-   - ※Webカメラへのアクセス許可を求められた場合は「許可」を選択してください。
-   - ※Pythonがインストールされていない場合は、ローカルサーバーが起動しません。その場合は `index.html` を直接開いて試すこともできますが、ブラウザのセキュリティ制限によりカメラが動作しない可能性があります。推奨はPython環境での実行です。
-
-
-### PoC調査
-
-* PoCの調査を行うためにユーザーのログをGAS上に記載するようにしたい。
-GASのアドレスはこちら。
-https://script.google.com/macros/s/AKfycbxeJqv6X1k6V3o9HkMGSe7I-Td0F0ry8MgN3_NtLkEn1aYfapXYND5nUYl8PCamvu8ANA/exec
-
-* GASにどのキーを打ったのかを記載されるように以下のコードを参考にindex.htmlを修正してください。
-// ▼ ゲームごとにここを変える
-const GAME_NAME = "AvoidWall_v1"; 
-
-// ... (SESSION_IDなどはそのまま) ...
-
-function sendKeyLog(keyName, note = "") {
-    fetch(GAS_URL, {
-        // ... (省略) ...
-        body: JSON.stringify({
-            gameName: GAME_NAME, // ▼ ここでゲーム名を送信！
-            key: keyName,
-            note: note,
-            session: SESSION_ID 
-        })
-    });
-}
-
-* ゲーム完了時点のスコアや完了ステージ、どこのステージを何度繰り返したのかをGASに記載させる様にindex.htmlを修正してください。
-* 誤操作を特定したいです。画面上の指示とは異なるキー操作が行われた場合には、補足情報として記入するようにしたい
