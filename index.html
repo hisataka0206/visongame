@@ -28,7 +28,6 @@
                 <h2 id="mode-display">MODE: FREE</h2>
                 <p>Press 'M' to Toggle Mode</p>
                 <p>Press 'S' to START</p>
-                <p>Press 'T' for TEST MODE</p>
                 <p id="settings-hint">Press 'P' for SETTINGS</p>
             </div>
 
@@ -268,7 +267,7 @@
         class Game {
             constructor() {
                 this.state = 'START';
-                this.mode = MODES.FREE;
+                this.mode = MODES.STORY;
                 this.frameCount = 0; // For Heartbeat
 
                 this.freeSettings = {
