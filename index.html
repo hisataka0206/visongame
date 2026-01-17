@@ -72,7 +72,42 @@
                 <p>Get Ready for Next Stage...</p>
             </div>
         </div>
+
+        <!-- GESTURE BUTTON (Floating above screens) -->
+        <div id="gesture-btn" class="hidden">
+            <svg viewBox="0 0 100 100" width="100%" height="100%">
+                <circle cx="50" cy="50" r="45" stroke="rgba(255,255,255,0.8)" stroke-width="4"
+                    fill="rgba(0,255,255,0.2)" />
+                <path id="gesture-progress-path" d="" fill="none" stroke="#ffff00" stroke-width="6"
+                    stroke-linecap="round" />
+                <text x="50" y="45" text-anchor="middle" fill="white" font-size="14" font-weight="bold"
+                    style="text-shadow: 1px 1px 2px black;">両手タッチ</text>
+                <text x="50" y="65" text-anchor="middle" fill="#ffff00" font-size="12" font-weight="bold"
+                    style="text-shadow: 1px 1px 2px black;">START</text>
+            </svg>
+        </div>
     </div>
+    </div>
+
+    <style>
+        #gesture-btn {
+            position: absolute;
+            top: 25%;
+            left: 85%;
+            width: 140px;
+            height: 140px;
+            transform: translate(-50%, -50%);
+            z-index: 1000;
+            /* Above everything */
+            pointer-events: none;
+            transition: transform 0.1s;
+        }
+
+        #gesture-btn.active-pulse {
+            transform: translate(-50%, -50%) scale(1.1);
+            filter: drop-shadow(0 0 15px #00ffff);
+        }
+    </style>
 
     <script>
         // --- PoC Logging (Web Port) ---
@@ -158,7 +193,9 @@
             stageInfo: document.getElementById('stage-info'),
             targetInfo: document.getElementById('target-info'),
             finalScore: document.getElementById('final-score'),
-            goStoryInfo: document.getElementById('go-story-info')
+            goStoryInfo: document.getElementById('go-story-info'),
+            gestureBtn: document.getElementById('gesture-btn'),
+            gestureProgressPath: document.getElementById('gesture-progress-path')
         };
 
         // Assets
@@ -311,6 +348,10 @@
                 this.effects = [];
                 this.lastSpawnTime = 0;
                 this.retryCount = 0;
+
+                // Gesture Start Config
+                this.gestureProgress = 0;
+                this.gestureMax = 60; // Frames (approx 1-2 sec)
 
                 this.inputHandling();
                 this.updateUI();
@@ -645,6 +686,11 @@
                 // Fruits
                 this.fruits.forEach(f => f.draw(ctx));
 
+                // Fruits
+                this.fruits.forEach(f => f.draw(ctx));
+
+                // Landmarks Drawing (Visual Validation)
+
                 // Landmarks Drawing (Visual Validation)
                 if (landmarks && this.state === 'PLAYING') {
                     const h = canvas.height;
@@ -818,6 +864,93 @@
                     }
                 }
             }
+
+            // --- GESTURE START LOGIC ---
+            updateGestureLogic(landmarks) {
+                // UI VISIBILITY
+                if (this.state === 'START' || this.state === 'GAMEOVER') {
+                    els.gestureBtn.classList.remove('hidden');
+                    // Label Update
+                    const label = els.gestureBtn.querySelector('text:last-of-type');
+                    if (label) label.textContent = (this.state === 'START' ? "START" : "RETRY");
+                } else {
+                    els.gestureBtn.classList.add('hidden');
+                    return;
+                }
+
+                if (!landmarks) return;
+
+                // Button Position (Top Right)
+                // CSS is Top 25%, Left 85%
+                // We must match canvas coords
+                const btnX = canvas.width * 0.85;
+                const btnY = canvas.height * 0.25;
+                const btnR = 70; // Match HTML visual size approx
+
+                // Hands Indices
+                const leftHand = landmarks[19]; // L Index
+                const rightHand = landmarks[20]; // R Index
+
+                if (!leftHand || !rightHand) return;
+
+                const lx = leftHand.x * canvas.width;
+                const ly = leftHand.y * canvas.height;
+                const rx = rightHand.x * canvas.width;
+                const ry = rightHand.y * canvas.height;
+
+                const distL = Math.hypot(lx - btnX, ly - btnY);
+                const distR = Math.hypot(rx - btnX, ry - btnY);
+
+                // Both hands inside circle?
+                let active = false;
+                if (distL < btnR && distR < btnR) {
+                    active = true;
+                    this.gestureProgress++;
+                    if (this.gestureProgress > this.gestureMax) {
+                        this.gestureProgress = 0;
+                        if (this.state === 'START') this.startGame();
+                        else if (this.state === 'GAMEOVER') this.restartGame();
+                    }
+                } else {
+                    this.gestureProgress = Math.max(0, this.gestureProgress - 5);
+                }
+
+                // UPDATE HTML UI
+                if (active) {
+                    els.gestureBtn.classList.add('active-pulse');
+                } else {
+                    els.gestureBtn.classList.remove('active-pulse');
+                }
+
+                // Draw Arc
+                if (this.gestureProgress > 0) {
+                    const ratio = this.gestureProgress / this.gestureMax;
+                    const angle = ratio * Math.PI * 2;
+
+                    // SVG Arc Path
+                    // r=45, cx=50, cy=50
+                    // Start at -90deg (top)
+                    const r = 45;
+                    const cx = 50;
+                    const cy = 50;
+                    const startX = cx;
+                    const startY = cy - r;
+
+                    // Calculate end point
+                    // angle is radians clockwise from top if we adapt math, 
+                    // but standard math is from right (0). Top is -PI/2.
+                    const endAngle = -Math.PI / 2 + angle;
+                    const endX = cx + r * Math.cos(endAngle);
+                    const endY = cy + r * Math.sin(endAngle);
+
+                    const largeArc = angle > Math.PI ? 1 : 0;
+
+                    const d = `M ${startX} ${startY} A ${r} ${r} 0 ${largeArc} 1 ${endX} ${endY}`;
+                    els.gestureProgressPath.setAttribute('d', d);
+                } else {
+                    els.gestureProgressPath.setAttribute('d', '');
+                }
+            }
         }
 
         const game = new Game();
@@ -942,6 +1075,7 @@
                 game.draw(ctx, targetLandmarks);
 
                 game.update(targetLandmarks);
+                game.updateGestureLogic(targetLandmarks); // NEW
 
                 requestAnimationFrame(gameLoop);
             } catch (err) {
